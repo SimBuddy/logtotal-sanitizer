@@ -1,0 +1,104 @@
+{
+  "name": "@socprime/logtotal-sanitizer",
+  "version": "0.0.1-beta.0",
+  "description": "Framework-agnostic log sanitizer that detects and pseudonymizes secrets, PII and infrastructure identifiers in log data, in the browser and in Node.js.",
+  "keywords": [
+    "sanitizer",
+    "redaction",
+    "pseudonymization",
+    "anonymization",
+    "pii",
+    "gdpr",
+    "logs",
+    "log-analysis",
+    "security",
+    "privacy",
+    "masking"
+  ],
+  "license": "Apache-2.0",
+  "author": "SOC Prime",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/socprime/logtotal-sanitizer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/socprime/logtotal-sanitizer/issues"
+  },
+  "homepage": "https://github.com/socprime/logtotal-sanitizer#readme",
+  "private": false,
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "logtotal-sanitize": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./rules": {
+      "import": {
+        "types": "./dist/rules.d.ts",
+        "default": "./dist/rules.js"
+      },
+      "require": {
+        "types": "./dist/rules.d.cts",
+        "default": "./dist/rules.cjs"
+      }
+    },
+    "./node": {
+      "import": {
+        "types": "./dist/node.d.ts",
+        "default": "./dist/node.js"
+      },
+      "require": {
+        "types": "./dist/node.d.cts",
+        "default": "./dist/node.cjs"
+      }
+    }
+  },
+  "scripts": {
+    "clean": "node scripts/clean.mjs",
+    "build": "npm run clean && tsup && node scripts/build-package-json.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "verify:isomorphic": "node scripts/verify-isomorphic.mjs",
+    "verify:smoke": "node scripts/smoke/esm.mjs && node scripts/smoke/cjs.cjs",
+    "verify:pack": "npm run verify:isomorphic && npm run verify:smoke && publint dist --strict --pack npm && attw --pack dist",
+    "check": "npm run typecheck && npm run lint && npm run test",
+    "release": "npm run check && npm run build && npm run verify:pack"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.2",
+    "@eslint/js": "^9.0.0",
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^9.0.0",
+    "eslint-config-prettier": "^10.0.0",
+    "eslint-plugin-simple-import-sort": "^12.1.1",
+    "prettier": "^3.6.2",
+    "publint": "^0.3.12",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.58.0",
+    "vitest": "^4.1.10"
+  }
+}

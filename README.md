@@ -1,93 +1,199 @@
-# Logtotal Sanitizer
+# @socprime/logtotal-sanitizer
 
+Framework-agnostic log sanitizer for browsers and Node.js. It redacts secrets, identifiers and PII and replaces each value with a stable HMAC token so event correlation still works.
 
+The library has no runtime dependencies. The same compiled rules run in a browser tab and in a Node.js CLI.
 
-## Getting started
+## Install
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
-
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/ee/gitlab-basics/add-file.html#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
-
-```
-cd existing_repo
-git remote add origin https://srv-gitlab-000.cloud.socprime.com/websites/logtotal-sanitizer.git
-git branch -M main
-git push -uf origin main
+```bash
+npm install @socprime/logtotal-sanitizer
 ```
 
-## Integrate with your tools
+Requires Node.js 20 or newer when used from Node. Browsers need `globalThis.crypto.getRandomValues`.
 
-- [ ] [Set up project integrations](https://srv-gitlab-000.cloud.socprime.com/websites/logtotal-sanitizer/-/settings/integrations)
+## Quick start
 
-## Collaborate with your team
+```ts
+import { createSanitizer, generateKey } from '@socprime/logtotal-sanitizer';
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
+const key = generateKey();
+const sanitizer = createSanitizer({
+  key,
+  rules: ['secrets', 'ips', 'hosts', 'users'],
+});
 
-## Test and Deploy
+const { output, report } = sanitizer.sanitizeText(
+  'user alice@example.test logged in from 10.0.0.1 with Bearer abcdefghijklmnop',
+);
 
-Use the built-in continuous integration in GitLab.
+console.log(output);
+console.log(report.counts);
+```
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+Reuse `key` across files when the same original value must map to the same token. Persistence is your responsibility; the library never writes the key to disk or `sessionStorage`.
 
-***
+## Options
 
-# Editing this README
+`createSanitizer(options)` compiles rules once. `sanitizeText(text, options)` is a one-shot wrapper.
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+| Option                | Default            | Meaning                                                                                |
+| --------------------- | ------------------ | -------------------------------------------------------------------------------------- |
+| `rules`               | all built-in rules | Built-in ids, custom rules from `defineRule`, or a mix. Array order is match priority. |
+| `aggressive`          | `false`            | Also apply each rule's broader `aggressivePatterns`.                                   |
+| `key`                 | `generateKey()`    | HMAC key. Generated keys are 64 hex chars.                                             |
+| `keyEncoding`         | `hex`              | How to decode `key`. Generated keys are hex; pass `utf8` for a passphrase.             |
+| `alwaysRedact`        | —                  | Extra literals and regexes, highest match priority.                                    |
+| `neverRedact`         | —                  | Allowlist. Highest overall priority: matching values are left unchanged.               |
+| `report.contextChars` | `0`                | Characters of surrounding text on each unique replacement.                             |
 
-## Suggestions for a good README
+### Priority
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+1. `neverRedact` (global values, global patterns, then `byRule`)
+2. `alwaysRedact`
+3. Selected rules, in the order you passed them (built-in registry order when you omit `rules`)
 
-## Name
-Choose a self-explaining name for your project.
+A rejected `validate()` result also skips the span. The engine does not retry a later overlapping rule from the same start offset.
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+### alwaysRedact / neverRedact
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+```ts
+const sanitizer = createSanitizer({
+  key,
+  alwaysRedact: {
+    values: ['acme-internal-host'],
+    patterns: [/CASE-\d{6}/],
+  },
+  neverRedact: {
+    values: ['127.0.0.1'],
+    byRule: [{ ruleId: 'hosts', values: ['localhost'] }],
+  },
+});
+```
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+`alwaysRedact` matches appear in the report under rule id `custom` with token prefix `CUSTOM`.
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+## Built-in rules
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+Enabled in this order when you omit `rules`:
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+| id               | Token       | What it redacts                                                                           |
+| ---------------- | ----------- | ----------------------------------------------------------------------------------------- |
+| `secrets`        | `<R:…>`     | Bearer/JWT/API keys, PEM blocks, cloud tokens. Aggressive: high-entropy hex/base64 blobs. |
+| `sessionCookies` | `<R:…>`     | Session cookie names and values.                                                          |
+| `paymentInfo`    | `<R:…>`     | PAN, IBAN, and related payment identifiers (Luhn / mod-97).                               |
+| `govIds`         | `<R:…>`     | Government identifiers (SSN-like, national IDs).                                          |
+| `healthInfo`     | `<R:…>`     | Health-record shaped identifiers and ICD-like codes.                                      |
+| `phoneNumbers`   | `<PHONE:…>` | International and national phone numbers.                                                 |
+| `ips`            | `<IP:…>`    | IPv4, IPv6, MAC, reverse-DNS.                                                             |
+| `hosts`          | `<HOST:…>`  | Hostnames and FQDNs. Aggressive: `WIN-` / `DESKTOP-` NetBIOS names.                       |
+| `users`          | `<USER:…>`  | Usernames and emails.                                                                     |
+| `geoLocation`    | `<GEO:…>`   | Coordinates and postal-style locations.                                                   |
+| `paths`          | `<R:…>`     | Home-directory user segments (`/home/…`, `\Users\…`).                                     |
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+`mask` mode (`<R:…>`) hides the kind of secret. `pseudo` mode keeps a type prefix so you can still read the timeline.
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+JSON lines: if a line parses as a JSON object or array, fields listed in a rule's `jsonKeys` are redacted by name (case- and `-`/`_`-insensitive). Other string values still go through the regex pass.
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+## Custom rules
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+```ts
+import { createSanitizer, defineRule } from '@socprime/logtotal-sanitizer';
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+const ticket = defineRule({
+  id: 'ticket',
+  label: 'Ticket ids',
+  description: 'Internal ticket numbers',
+  mode: 'pseudo',
+  token: 'TICKET',
+  patterns: ['(?:CASE-\\d{6})'],
+});
 
-## License
-For open source projects, say how it is licensed.
+const sanitizer = createSanitizer({ rules: ['secrets', ticket] });
+```
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+`id` must be a JavaScript identifier (it becomes a named capture group). Use non-capturing groups in `patterns`. Put expensive checks in `validate`, not in the regex.
+
+## Streaming and I/O
+
+```ts
+import { createSanitizer, fromString, toString } from '@socprime/logtotal-sanitizer';
+
+const sink = toString();
+const report = await createSanitizer({ key }).sanitizeStream(fromString(text), sink);
+const output = sink.result();
+```
+
+Browser helpers: `fromBlob`, `fromWebStream`, `toWebStream`.
+
+Node helpers (subpath `@socprime/logtotal-sanitizer/node`):
+
+```ts
+import { sanitizeFile } from '@socprime/logtotal-sanitizer/node';
+
+await sanitizeFile('./app.log', './app.sanitized.log', { rules: ['secrets', 'ips'] });
+```
+
+Also: `fromFile`, `toFile`, `fromNodeStream`, `toNodeStream`.
+
+The root entry does not import `node:*`.
+
+## Report
+
+```ts
+{
+  counts: { ips: 2, secrets: 1 },
+  totalMatches: 3,
+  lineCount: 40,
+  replacements: [{ ruleId, original, replacement, count, contextBefore?, contextAfter? }],
+  preview: { before: [{ text, changed }], after: [{ text, changed }] }
+}
+```
+
+`preview` covers the first 256 KiB of output.
+
+## CLI
+
+```bash
+npx @socprime/logtotal-sanitizer --help
+
+# local
+npx logtotal-sanitize ./app.log -o ./app.sanitized.log --report ./report.json
+
+# stdin / stdout
+cat app.log | npx logtotal-sanitize - --stdout > app.sanitized.log
+
+# correlate tokens across files
+npx logtotal-sanitize a.log -o a.out --print-key
+npx logtotal-sanitize b.log -o b.out --key "$KEY"
+```
+
+Global install:
+
+```bash
+npm install -g @socprime/logtotal-sanitizer
+logtotal-sanitize ./app.log -o ./app.sanitized.log
+```
+
+| Flag                                      | Meaning                                                                            |
+| ----------------------------------------- | ---------------------------------------------------------------------------------- |
+| `-o, --out`                               | Output path (default: `<input>.sanitized`)                                         |
+| `--stdout`                                | Write sanitized text to stdout                                                     |
+| `--report` / `--report-format`            | JSON or text summary                                                               |
+| `--rules` / `--exclude-rules`             | Built-in id lists                                                                  |
+| `--rules-file`                            | Extra rules from JS (default export) or JSON                                       |
+| `--exclude` / `--exclude-file`            | `neverRedact` values                                                               |
+| `--redact` / `--redact-file`              | `alwaysRedact` values                                                              |
+| `--aggressive`                            | Broader patterns                                                                   |
+| `--key` / `--key-file` / `--key-encoding` | HMAC key                                                                           |
+| `--print-key`                             | Print the key to stderr                                                            |
+| `--dry-run`                               | Report only                                                                        |
+| `--fail-on-match`                         | Exit `1` if anything was redacted                                                  |
+| `--progress` / `--no-progress`            | Live progress bar on stderr (on by default when stderr is a TTY and not `--quiet`) |
+| `-q, --quiet`                             | No text summary                                                                    |
+
+Exit codes: `0` ok, `1` runtime error or `--fail-on-match`, `2` usage error.
+
+## Token correlation
+
+Tokens are HMAC-SHA-256 of `ruleId || 0x00 || original`, truncated to 16 hex chars. Same key + same value + same rule ⇒ same token. A different key produces different tokens. Generated keys use encoding `hex`; pasted keys default to `utf8`.
