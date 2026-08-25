@@ -100,5 +100,8 @@
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.58.0",
     "vitest": "^4.1.10"
+  },
+  "resolutions": {
+    "esbuild": "^0.28.1"
   }
 }
