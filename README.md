@@ -1,6 +1,10 @@
 # @socprime/logtotal-sanitizer
 
-Framework-agnostic log sanitizer for browsers and Node.js. It redacts secrets, identifiers and PII and replaces each value with a stable HMAC token so event correlation still works.
+Framework-agnostic log sanitizer for browsers and Node.js. It's designed to sanitize log files before they are sent to third-party platforms for processing, analysis, or troubleshooting. The sanitizer redacts secrets, identifiers, and PII and replaces each value with a stable HMAC token to reduce the risk of accidentally exposing sensitive or confidential information contained in logs.
+
+This library is already integrated into [LogTotal](https://logtotal.com) and runs directly in the browser, allowing logs to be sanitized locally before they leave the user's environment.
+
+If you require a fully controlled and isolated data sanitization environment, you can deploy and run this library within your own infrastructure. The sanitizer can also be installed and used in air-gapped environments, ensuring that sensitive log data remains within an environment you fully control.
 
 The library has no runtime dependencies. The same compiled rules run in a browser tab and in a Node.js CLI.
 
