@@ -30,6 +30,43 @@ describe('built-in rules (smoke)', () => {
     expect(output).toMatch(/<HOST:[0-9a-f]{16}>/);
   });
 
+  it('redacts a short hostname in a BSD syslog line', () => {
+    const line =
+      'Nov 15 09:19:41 srv-app-07 sshd[4070]: Failed password for invalid user ubuntu from 192.0.2.1 port 2222 ssh2';
+    const { output } = sanitizeText(line, { ...options, rules: ['hosts'] });
+    expect(output).toMatch(
+      /^Nov 15 09:19:41 <HOST:[0-9a-f]{16}> sshd\[4070\]: Failed password for invalid user ubuntu from 192\.0\.2\.1 port 2222 ssh2$/,
+    );
+  });
+
+  it('redacts a short hostname after an ISO-8601 syslog timestamp', () => {
+    const line = '2024-11-15T09:19:41.123Z srv-app-07 sshd[4970]: session opened';
+    const { output } = sanitizeText(line, { ...options, rules: ['hosts'] });
+    expect(output).toMatch(
+      /^2024-11-15T09:19:41\.123Z <HOST:[0-9a-f]{16}> sshd\[4970\]: session opened$/,
+    );
+  });
+
+  it('does not treat a syslog tag as a hostname when the host field is omitted', () => {
+    const line = 'Nov 15 09:19:41 kernel: CPU0: temperature above threshold';
+    const { output, report } = sanitizeText(line, { ...options, rules: ['hosts'] });
+    expect(output).toBe(line);
+    expect(report.counts.hosts ?? 0).toBe(0);
+  });
+
+  it('redacts inventory-style hostnames in unstructured text only when aggressive', () => {
+    const line = 'probe srv-app-07 before failover';
+    const { output: defaultOutput, report: defaultReport } = sanitizeText(line, {
+      ...options,
+      rules: ['hosts'],
+    });
+    expect(defaultOutput).toBe(line);
+    expect(defaultReport.counts.hosts ?? 0).toBe(0);
+
+    const { output } = sanitizeText(line, { ...options, rules: ['hosts'], aggressive: true });
+    expect(output).toMatch(/^probe <HOST:[0-9a-f]{16}> before failover$/);
+  });
+
   it('redacts a home-directory user segment', () => {
     const { output } = sanitizeText('path=/home/alice/app.log', { ...options, rules: ['paths'] });
     expect(output).toMatch(/\/home\/<R:[0-9a-f]{16}>\//);

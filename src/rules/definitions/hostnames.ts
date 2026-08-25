@@ -978,15 +978,27 @@ const HOST_CTX = `(?:(?<=\\b${HOST_CTX_KEY}\\s*[=:]\\s*)[A-Za-z0-9](?:[A-Za-z0-9
 
 const NETBIOS_AGGRESSIVE = '(?:\\b(?:WIN|DESKTOP)-[A-Z0-9]{7,10}\\b)';
 
+const SYSLOG_MONTH = '(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)';
+const SYSLOG_BSD_TS = `${SYSLOG_MONTH}\\s+\\d{1,2}\\s+\\d{2}:\\d{2}:\\d{2}`;
+const SYSLOG_ISO_TS =
+  '\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:?\\d{2})?';
+const SYSLOG_HOST_NAME = `${LABEL}(?:\\.${LABEL})*`;
+const SYSLOG_HOST_LOOKAHEAD = '(?=\\s+[A-Za-z][A-Za-z0-9_.@-]*(?:\\[\\d+\\])?:)';
+const SYSLOG_HOST = `(?:(?<=(?:${SYSLOG_BSD_TS}|${SYSLOG_ISO_TS})\\s+)${SYSLOG_HOST_NAME}${SYSLOG_HOST_LOOKAHEAD})`;
+
+const INVENTORY_PREFIX =
+  '(?:[Ss][Rr][Vv]|[Ww][Ee][Bb]|[Dd][Bb]|[Aa][Pp][Pp]|[Hh][Oo][Ss][Tt]|[Nn][Oo][Dd][Ee]|[Pp][Oo][Dd])';
+const INVENTORY_HOST = `(?:\\b${INVENTORY_PREFIX}-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*-\\d+\\b)`;
+
 export const hostnamesRule: SanitizeRule = {
   id: 'hosts',
   label: 'Hostnames & domains',
   description:
-    'FQDNs, UNC computer names and Kerberos SPN hosts become the same token everywhere within a session.',
+    'FQDNs, UNC computer names, Kerberos SPN hosts and syslog host fields become the same token everywhere within a session.',
   mode: 'pseudo',
   token: 'HOST',
-  patterns: [HOST_EXACT, HOST_COLLISION, UNC_COMPUTER, SPN_HOST, HOST_CTX],
-  aggressivePatterns: [NETBIOS_AGGRESSIVE],
+  patterns: [HOST_EXACT, HOST_COLLISION, UNC_COMPUTER, SPN_HOST, HOST_CTX, SYSLOG_HOST],
+  aggressivePatterns: [NETBIOS_AGGRESSIVE, INVENTORY_HOST],
   jsonKeys: [
     'hostname',
     'host',

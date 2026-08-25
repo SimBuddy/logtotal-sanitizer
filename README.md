@@ -77,19 +77,19 @@ const sanitizer = createSanitizer({
 
 Enabled in this order when you omit `rules`:
 
-| id               | Token       | What it redacts                                                                           |
-| ---------------- | ----------- | ----------------------------------------------------------------------------------------- |
-| `secrets`        | `<R:…>`     | Bearer/JWT/API keys, PEM blocks, cloud tokens. Aggressive: high-entropy hex/base64 blobs. |
-| `sessionCookies` | `<R:…>`     | Session cookie names and values.                                                          |
-| `paymentInfo`    | `<R:…>`     | PAN, IBAN, and related payment identifiers (Luhn / mod-97).                               |
-| `govIds`         | `<R:…>`     | Government identifiers (SSN-like, national IDs).                                          |
-| `healthInfo`     | `<R:…>`     | Health-record shaped identifiers and ICD-like codes.                                      |
-| `phoneNumbers`   | `<PHONE:…>` | International and national phone numbers.                                                 |
-| `ips`            | `<IP:…>`    | IPv4, IPv6, MAC, reverse-DNS.                                                             |
-| `hosts`          | `<HOST:…>`  | Hostnames and FQDNs. Aggressive: `WIN-` / `DESKTOP-` NetBIOS names.                       |
-| `users`          | `<USER:…>`  | Usernames and emails.                                                                     |
-| `geoLocation`    | `<GEO:…>`   | Coordinates and postal-style locations.                                                   |
-| `paths`          | `<R:…>`     | Home-directory user segments (`/home/…`, `\Users\…`).                                     |
+| id               | Token       | What it redacts                                                                                                                                                 |
+| ---------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `secrets`        | `<R:…>`     | Bearer/JWT/API keys, PEM blocks, cloud tokens. Aggressive: high-entropy hex/base64 blobs.                                                                       |
+| `sessionCookies` | `<R:…>`     | Session cookie names and values.                                                                                                                                |
+| `paymentInfo`    | `<R:…>`     | PAN, IBAN, and related payment identifiers (Luhn / mod-97).                                                                                                     |
+| `govIds`         | `<R:…>`     | Government identifiers (SSN-like, national IDs).                                                                                                                |
+| `healthInfo`     | `<R:…>`     | Health-record shaped identifiers and ICD-like codes.                                                                                                            |
+| `phoneNumbers`   | `<PHONE:…>` | International and national phone numbers.                                                                                                                       |
+| `ips`            | `<IP:…>`    | IPv4, IPv6, MAC, reverse-DNS.                                                                                                                                   |
+| `hosts`          | `<HOST:…>`  | Hostnames and FQDNs, including the host field in syslog lines. Aggressive: `WIN-` / `DESKTOP-` NetBIOS names and `srv-` / `web-` / `db-` style inventory names. |
+| `users`          | `<USER:…>`  | Usernames and emails.                                                                                                                                           |
+| `geoLocation`    | `<GEO:…>`   | Coordinates and postal-style locations.                                                                                                                         |
+| `paths`          | `<R:…>`     | Home-directory user segments (`/home/…`, `\Users\…`).                                                                                                           |
 
 `mask` mode (`<R:…>`) hides the kind of secret. `pseudo` mode keeps a type prefix so you can still read the timeline.
 
