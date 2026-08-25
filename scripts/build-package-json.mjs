@@ -2,8 +2,9 @@
 //
 // The repository root manifest stays `"private": true` and keeps every dev-only field. None of
 // that belongs in the tarball, so `dist/` is published as the package root with its own trimmed
-// manifest generated here. Paths that are `./dist/...` in the root manifest become `./...` here,
-// because `dist/` *is* the package root once published.
+// manifest generated here. Export paths that are `./dist/...` in the root manifest become `./...`
+// here, because `dist/` *is* the package root once published. Bin targets drop the `./` prefix:
+// npm 11 treats `./cli.js` as invalid and removes the `bin` entry on publish.
 //
 // CONTRIBUTING.md is deliberately not copied: it documents the internals of this repository, not
 // the published package.
@@ -20,12 +21,24 @@ function stripDistPrefix(value) {
   return value.replace(/^\.\/dist\//, './');
 }
 
+function stripBinDistPrefix(value) {
+  return value.replace(/^\.\/dist\//, '').replace(/^dist\//, '');
+}
+
 function rewritePaths(value) {
   if (typeof value === 'string') {
     return stripDistPrefix(value);
   }
 
   return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, rewritePaths(nested)]));
+}
+
+function rewriteBin(value) {
+  if (typeof value === 'string') {
+    return stripBinDistPrefix(value);
+  }
+
+  return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, rewriteBin(nested)]));
 }
 
 const distPkg = {
@@ -49,7 +62,7 @@ const distPkg = {
     // Tooling resolves the manifest of its dependencies; without this subpath `exports` blocks it.
     './package.json': './package.json',
   },
-  ...(rootPkg.bin ? { bin: rewritePaths(rootPkg.bin) } : {}),
+  ...(rootPkg.bin ? { bin: rewriteBin(rootPkg.bin) } : {}),
   publishConfig: {
     access: 'public',
   },
