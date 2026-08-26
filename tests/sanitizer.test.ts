@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { defineRule, fromString, generateKey, sanitizeStream, sanitizeText, toStringSink } from '../src/index.js';
+import {
+  defineRule,
+  fromString,
+  generateKey,
+  sanitizeStream,
+  sanitizeText,
+  toStringSink,
+} from '../src/index.js';
 
 const KEY = '0123456789abcdef'.repeat(4);
 
@@ -87,6 +94,53 @@ describe('sanitizeText', () => {
     expect(parsed.password).toMatch(/^<R:[0-9a-f]{16}>$/);
     expect(parsed.token).toBe(parsed.password);
     expect(report.counts.secrets).toBe(2);
+  });
+
+  it('highlights jsonKeys values in the before preview even when regex would skip them', () => {
+    const line = JSON.stringify({ UserName: 'NT AUTHORITY\\SYSTEM' });
+    const { output, report } = sanitizeText(line, {
+      key: KEY,
+      keyEncoding: 'hex',
+      rules: ['users'],
+    });
+
+    const parsed = JSON.parse(output) as { UserName: string };
+    expect(parsed.UserName).toMatch(/^<USER:[0-9a-f]{16}>$/);
+
+    const beforeChanged = report.preview.before
+      .filter((segment) => segment.changed)
+      .map((segment) => segment.text);
+    const afterChanged = report.preview.after
+      .filter((segment) => segment.changed)
+      .map((segment) => segment.text);
+
+    expect(beforeChanged).toEqual([JSON.stringify('NT AUTHORITY\\SYSTEM').slice(1, -1)]);
+    expect(afterChanged).toEqual([parsed.UserName]);
+    expect(report.preview.before.map((segment) => segment.text).join('')).toBe(line);
+  });
+
+  it('highlights regex matches inside JSON string fields in the before preview', () => {
+    const line = JSON.stringify({ message: 'from alice@example.test' });
+    const { output, report } = sanitizeText(line, {
+      key: KEY,
+      keyEncoding: 'hex',
+      rules: ['users'],
+    });
+
+    const parsed = JSON.parse(output) as { message: string };
+    expect(parsed.message).toMatch(/^from <USER:[0-9a-f]{16}>$/);
+
+    const beforeChanged = report.preview.before
+      .filter((segment) => segment.changed)
+      .map((segment) => segment.text);
+    const afterChanged = report.preview.after
+      .filter((segment) => segment.changed)
+      .map((segment) => segment.text);
+
+    expect(beforeChanged).toEqual(['alice@example.test']);
+    expect(afterChanged).toHaveLength(1);
+    expect(parsed.message).toContain(afterChanged[0]);
+    expect(report.preview.before.map((segment) => segment.text).join('')).toBe(line);
   });
 
   it('accepts a custom rule via defineRule', () => {

@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.0.1-beta.3] - 2026-08-26
+
+### Fixed
+
+- JSON preview `before` segments now highlight values redacted via `jsonKeys`, not only regex
+  matches. Fields such as `UserName` were replaced in the output (and highlighted in `after`) but
+  left unmarked on the left-hand preview.
+
 ## [0.0.1-beta.2] - 2026-08-25
 
 ### Changed

@@ -80,6 +80,81 @@ function highlightReplacements(text: string): SanitizeSegment[] {
   return segments.length > 0 ? segments : [{ text, changed: false }];
 }
 
+interface PreviewOriginal {
+  value: string;
+  wholeValue: boolean;
+}
+
+function jsonStringContent(value: string): string {
+  return JSON.stringify(value).slice(1, -1);
+}
+
+function findOriginal(
+  text: string,
+  original: PreviewOriginal,
+  from: number,
+): { index: number; length: number } | null {
+  const encoded = jsonStringContent(original.value);
+
+  if (original.wholeValue) {
+    const quoted = `"${encoded}"`;
+    const quotedIndex = text.indexOf(quoted, from);
+
+    if (quotedIndex !== -1) {
+      return { index: quotedIndex + 1, length: encoded.length };
+    }
+  }
+
+  const needles = encoded === original.value ? [encoded] : [encoded, original.value];
+
+  for (const needle of needles) {
+    const index = text.indexOf(needle, from);
+
+    if (index !== -1) {
+      return { index, length: needle.length };
+    }
+  }
+
+  return null;
+}
+
+function highlightOriginals(text: string, originals: PreviewOriginal[]): SanitizeSegment[] {
+  if (originals.length === 0) {
+    return [{ text, changed: false }];
+  }
+
+  const segments: SanitizeSegment[] = [];
+  let cursor = 0;
+
+  for (const original of originals) {
+    if (original.value.length === 0) {
+      continue;
+    }
+
+    const found = findOriginal(text, original, cursor);
+
+    if (found === null) {
+      continue;
+    }
+
+    if (found.index > cursor) {
+      segments.push({ text: text.slice(cursor, found.index), changed: false });
+    }
+
+    segments.push({
+      text: text.slice(found.index, found.index + found.length),
+      changed: true,
+    });
+    cursor = found.index + found.length;
+  }
+
+  if (cursor < text.length) {
+    segments.push({ text: text.slice(cursor), changed: false });
+  }
+
+  return segments.length > 0 ? segments : [{ text, changed: false }];
+}
+
 export function redactJsonLine(
   line: string,
   ctx: RuleContext,
@@ -103,22 +178,33 @@ export function redactJsonLine(
 
   const withSegments = options.withSegments ?? false;
   const withMatches = options.withMatches ?? false;
+  const collectOriginals = withMatches || withSegments;
   const keyIndex = jsonKeyIndex(ctx.rules);
   const counts: Record<string, number> = {};
   const matches: RedactMatch[] = [];
+  const originals: PreviewOriginal[] = [];
 
   const contextFor = (value: string): Partial<RedactMatch> => {
     if (ctx.contextChars <= 0) {
       return {};
     }
 
-    const index = content.indexOf(value);
+    const encoded = jsonStringContent(value);
+    const encodedIndex = content.indexOf(encoded);
 
-    if (index < 0) {
-      return { contextBefore: '', contextAfter: '' };
+    if (encodedIndex >= 0) {
+      return sliceContext(content, encodedIndex, encoded.length, ctx.contextChars);
     }
 
-    return sliceContext(content, index, value.length, ctx.contextChars);
+    if (encoded !== value) {
+      const rawIndex = content.indexOf(value);
+
+      if (rawIndex >= 0) {
+        return sliceContext(content, rawIndex, value.length, ctx.contextChars);
+      }
+    }
+
+    return { contextBefore: '', contextAfter: '' };
   };
 
   const redactValue = (value: unknown, key?: string): unknown => {
@@ -133,6 +219,10 @@ export function redactJsonLine(
         const replacement = buildReplacement(ctx, fieldRule.id, value);
         counts[fieldRule.id] = (counts[fieldRule.id] ?? 0) + 1;
 
+        if (withSegments) {
+          originals.push({ value, wholeValue: true });
+        }
+
         if (withMatches) {
           matches.push({
             ruleId: fieldRule.id,
@@ -145,12 +235,18 @@ export function redactJsonLine(
         return replacement;
       }
 
-      const result = redactLine(value, ctx, { withMatches });
+      const result = redactLine(value, ctx, { withMatches: collectOriginals });
       mergeCounts(counts, result.counts);
 
-      if (withMatches) {
+      if (collectOriginals) {
         for (const match of result.matches) {
-          matches.push({ ...match, ...contextFor(match.original) });
+          if (withSegments) {
+            originals.push({ value: match.original, wholeValue: false });
+          }
+
+          if (withMatches) {
+            matches.push({ ...match, ...contextFor(match.original) });
+          }
         }
       }
 
@@ -180,14 +276,12 @@ export function redactJsonLine(
     return { output, counts, matches };
   }
 
-  const preview = redactLine(line, ctx, { withSegments: true });
-
   return {
     output,
     counts,
     matches,
     segments: {
-      before: preview.segments?.before ?? [{ text: line, changed: false }],
+      before: highlightOriginals(line, originals),
       after: highlightReplacements(output),
     },
   };
