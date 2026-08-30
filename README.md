@@ -1,203 +1,111 @@
-# @socprime/logtotal-sanitizer
+# logtotal-sanitizer — Performance Research Fork
 
-Framework-agnostic log sanitizer for browsers and Node.js. It's designed to sanitize log files before they are sent to third-party platforms for processing, analysis, or troubleshooting. The sanitizer redacts secrets, identifiers, and PII and replaces each value with a stable HMAC token to reduce the risk of accidentally exposing sensitive or confidential information contained in logs.
+This repository is a personal development fork of [SocPrime's `logtotal-sanitizer`](https://github.com/socprime/logtotal-sanitizer).
 
-This library is already integrated into [LogTotal](https://logtotal.com) and runs directly in the browser, allowing logs to be sanitized locally before they leave the user's environment.
+This is hopefully, a small gift to SOC Prime and Andrii B from Paul G (formerly Diageo). I'm stress testing a novel method of refocussing code (not traditional optimising),
+which is machine-assisted, and human orchestrated, and I noticed SOC Prime's post about the sanitiser, so I thought I'd stress-test the code with my method. If you need any more info, AB has my number.
 
-If you require a fully controlled and isolated data sanitization environment, you can deploy and run this library within your own infrastructure. The sanitizer can also be installed and used in air-gapped environments, ensuring that sensitive log data remains within an environment you fully control.
+I would greatly appreciate feedback on this, as I'm new to Github, so sorry if I goofed up. I'm interested in the real-world improvements if adopted/tested.
 
-The library has no runtime dependencies. The same compiled rules run in a browser tab and in a Node.js CLI.
+The upstream project provides deterministic sanitization and pseudonymization of sensitive values in log data for Node.js and browser environments.
 
-## Install
+## Purpose of this fork
 
-```bash
-npm install @socprime/logtotal-sanitizer
-```
+This fork is being used to investigate performance and memory improvements while preserving the behaviour and compatibility of the upstream implementation.
 
-Requires Node.js 20 or newer when used from Node. Browsers need `globalThis.crypto.getRandomValues`.
+The work is based on the existing SocPrime architecture rather than an alternative implementation or competing distribution.
 
-## Quick start
+The main goals are:
 
-```ts
-import { createSanitizer, generateKey } from '@socprime/logtotal-sanitizer';
+* identify avoidable work in the sanitization pipeline;
+* preserve output and sanitization parity;
+* measure changes against repeatable benchmark workloads;
+* keep proposed changes small and independently reviewable;
+* prepare suitable improvements for possible contribution upstream.
 
-const key = generateKey();
-const sanitizer = createSanitizer({
-  key,
-  rules: ['secrets', 'ips', 'hosts', 'users'],
-});
+## Current performance work
 
-const { output, report } = sanitizer.sanitizeText(
-  'user alice@example.test logged in from 10.0.0.1 with Bearer abcdefghijklmnop',
-);
+Two independent candidate changes have completed local review.
 
-console.log(output);
-console.log(report.counts);
-```
+### CLI reporting
 
-Reuse `key` across files when the same original value must map to the same token. Persistence is your responsibility; the library never writes the key to disk or `sessionStorage`.
+Avoid collecting detailed replacement and preview information when the normal CLI path only requires aggregate counts.
 
-## Options
+Explicit detailed/JSON reporting retains the existing behaviour.
 
-`createSanitizer(options)` compiles rules once. `sanitizeText(text, options)` is a one-shot wrapper.
+Local testing showed meaningful reductions in unnecessary allocation and improved throughput on several match-heavy and JSON workloads.
 
-| Option                | Default            | Meaning                                                                                |
-| --------------------- | ------------------ | -------------------------------------------------------------------------------------- |
-| `rules`               | all built-in rules | Built-in ids, custom rules from `defineRule`, or a mix. Array order is match priority. |
-| `aggressive`          | `false`            | Also apply each rule's broader `aggressivePatterns`.                                   |
-| `key`                 | `generateKey()`    | HMAC key. Generated keys are 64 hex chars.                                             |
-| `keyEncoding`         | `hex`              | How to decode `key`. Generated keys are hex; pass `utf8` for a passphrase.             |
-| `alwaysRedact`        | —                  | Extra literals and regexes, highest match priority.                                    |
-| `neverRedact`         | —                  | Allowlist. Highest overall priority: matching values are left unchanged.               |
-| `report.contextChars` | `0`                | Characters of surrounding text on each unique replacement.                             |
+### Rule-family prerequisite gates
 
-### Priority
+Skip selected built-in rule-family regex work when a cheap prerequisite proves that the family cannot possibly match the current input.
 
-1. `neverRedact` (global values, global patterns, then `byRule`)
-2. `alwaysRedact`
-3. Selected rules, in the order you passed them (built-in registry order when you omit `rules`)
+The reviewed gates currently cover:
 
-A rejected `validate()` result also skips the span. The engine does not retry a later overlapping rule from the same start offset.
+* IP/MAC/PTR-related rules;
+* home-path rules;
+* session-cookie rules.
 
-### alwaysRedact / neverRedact
+These are semantic prerequisites rather than probabilistic heuristics.
 
-```ts
-const sanitizer = createSanitizer({
-  key,
-  alwaysRedact: {
-    values: ['acme-internal-host'],
-    patterns: [/CASE-\d{6}/],
-  },
-  neverRedact: {
-    values: ['127.0.0.1'],
-    byRule: [{ ruleId: 'hosts', values: ['localhost'] }],
-  },
-});
-```
+Custom rules remain on the existing unrestricted matching path.
 
-`alwaysRedact` matches appear in the report under rule id `custom` with token prefix `CUSTOM`.
+## Validation
 
-## Built-in rules
+Performance candidates are tested against the unmodified upstream implementation.
 
-Enabled in this order when you omit `rules`:
+The local review includes:
 
-| id               | Token       | What it redacts                                                                                                                                                 |
-| ---------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `secrets`        | `<R:…>`     | Bearer/JWT/API keys, PEM blocks, cloud tokens. Aggressive: high-entropy hex/base64 blobs.                                                                       |
-| `sessionCookies` | `<R:…>`     | Session cookie names and values.                                                                                                                                |
-| `paymentInfo`    | `<R:…>`     | PAN, IBAN, and related payment identifiers (Luhn / mod-97).                                                                                                     |
-| `govIds`         | `<R:…>`     | Government identifiers (SSN-like, national IDs).                                                                                                                |
-| `healthInfo`     | `<R:…>`     | Health-record shaped identifiers and ICD-like codes.                                                                                                            |
-| `phoneNumbers`   | `<PHONE:…>` | International and national phone numbers.                                                                                                                       |
-| `ips`            | `<IP:…>`    | IPv4, IPv6, MAC, reverse-DNS.                                                                                                                                   |
-| `hosts`          | `<HOST:…>`  | Hostnames and FQDNs, including the host field in syslog lines. Aggressive: `WIN-` / `DESKTOP-` NetBIOS names and `srv-` / `web-` / `db-` style inventory names. |
-| `users`          | `<USER:…>`  | Usernames and emails.                                                                                                                                           |
-| `geoLocation`    | `<GEO:…>`   | Coordinates and postal-style locations.                                                                                                                         |
-| `paths`          | `<R:…>`     | Home-directory user segments (`/home/…`, `\Users\…`).                                                                                                           |
+* existing project tests;
+* output and reporting parity checks;
+* adversarial and mixed-input testing;
+* deterministic benchmark workloads;
+* repeated Node.js/V8 throughput measurements;
+* memory and allocation profiling where relevant.
 
-`mask` mode (`<R:…>`) hides the kind of secret. `pseudo` mode keeps a type prefix so you can still read the timeline.
+On the reviewed local benchmark portfolio, the two changes together were neutral-to-positive across all tested workloads.
 
-JSON lines: if a line parses as a JSON object or array, fields listed in a rule's `jsonKeys` are redacted by name (case- and `-`/`_`-insensitive). Other string values still go through the regex pass.
+The largest gains occurred when rule families could be eliminated before regex execution.
 
-## Custom rules
+> **Note:** These results were measured on one local Windows/Node.js system and should not be interpreted as universal performance figures.
 
-```ts
-import { createSanitizer, defineRule } from '@socprime/logtotal-sanitizer';
+## Branches
 
-const ticket = defineRule({
-  id: 'ticket',
-  label: 'Ticket ids',
-  description: 'Internal ticket numbers',
-  mode: 'pseudo',
-  token: 'TICKET',
-  patterns: ['(?:CASE-\\d{6})'],
-});
+Development work is kept separate by purpose.
 
-const sanitizer = createSanitizer({ rules: ['secrets', ticket] });
-```
+| Branch                           | Purpose                                      |
+| -------------------------------- | -------------------------------------------- |
+| `wob3/candidate-reporting`       | CLI reporting candidate                      |
+| `wob3/candidate-necessary-gates` | Rule prerequisite candidate                  |
+| `wob3/topdown-performance-study` | Profiling, benchmarks, and research material |
 
-`id` must be a JavaScript identifier. At most one capturing group per fragment; it marks the value to replace (the rest of the match is kept). Put expensive checks in `validate`, not in the regex.
+Experimental combined/rejected branches may also exist for local comparison and are not intended as upstream patches.
 
-## Streaming and I/O
+## Upstream
 
-```ts
-import { createSanitizer, fromString, toString } from '@socprime/logtotal-sanitizer';
+The authoritative project is:
 
-const sink = toString();
-const report = await createSanitizer({ key }).sanitizeStream(fromString(text), sink);
-const output = sink.result();
-```
+**https://github.com/socprime/logtotal-sanitizer**
 
-Browser helpers: `fromBlob`, `fromWebStream`, `toWebStream`.
+Please use the upstream repository for:
 
-Node helpers (subpath `@socprime/logtotal-sanitizer/node`):
+* official releases;
+* package distribution;
+* documentation;
+* issues;
+* support.
 
-```ts
-import { sanitizeFile } from '@socprime/logtotal-sanitizer/node';
+This fork is currently a research and contribution workspace.
 
-await sanitizeFile('./app.log', './app.sanitized.log', { rules: ['secrets', 'ips'] });
-```
+It is **not intended to replace or redistribute the upstream project**.
 
-Also: `fromFile`, `toFile`, `fromNodeStream`, `toNodeStream`.
+## Contribution status
 
-The root entry does not import `node:*`.
+No assumption should be made that experimental changes in this fork are accepted or endorsed by SocPrime.
 
-## Report
+Candidate changes are kept isolated so they can be reviewed independently and, where appropriate, proposed upstream as focused pull requests.
 
-```ts
-{
-  counts: { ips: 2, secrets: 1 },
-  totalMatches: 3,
-  lineCount: 40,
-  replacements: [{ ruleId, original, replacement, count, contextBefore?, contextAfter? }],
-  preview: { before: [{ text, changed }], after: [{ text, changed }] }
-}
-```
+## License
 
-`preview` covers the first 256 KiB of output.
+This fork retains the licensing terms of the upstream `logtotal-sanitizer` project.
 
-## CLI
-
-```bash
-npx @socprime/logtotal-sanitizer --help
-
-# local
-npx logtotal-sanitize ./app.log -o ./app.sanitized.log --report ./report.json
-
-# stdin / stdout
-cat app.log | npx logtotal-sanitize - --stdout > app.sanitized.log
-
-# correlate tokens across files
-npx logtotal-sanitize a.log -o a.out --print-key
-npx logtotal-sanitize b.log -o b.out --key "$KEY"
-```
-
-Global install:
-
-```bash
-npm install -g @socprime/logtotal-sanitizer
-logtotal-sanitize ./app.log -o ./app.sanitized.log
-```
-
-| Flag                                      | Meaning                                                                            |
-| ----------------------------------------- | ---------------------------------------------------------------------------------- |
-| `-o, --out`                               | Output path (default: `<input>.sanitized`)                                         |
-| `--stdout`                                | Write sanitized text to stdout                                                     |
-| `--report` / `--report-format`            | JSON or text summary                                                               |
-| `--rules` / `--exclude-rules`             | Built-in id lists                                                                  |
-| `--rules-file`                            | Extra rules from JS (default export) or JSON                                       |
-| `--exclude` / `--exclude-file`            | `neverRedact` values                                                               |
-| `--redact` / `--redact-file`              | `alwaysRedact` values                                                              |
-| `--aggressive`                            | Broader patterns                                                                   |
-| `--key` / `--key-file` / `--key-encoding` | HMAC key                                                                           |
-| `--print-key`                             | Print the key to stderr                                                            |
-| `--dry-run`                               | Report only                                                                        |
-| `--fail-on-match`                         | Exit `1` if anything was redacted                                                  |
-| `--progress` / `--no-progress`            | Live progress bar on stderr (on by default when stderr is a TTY and not `--quiet`) |
-| `-q, --quiet`                             | No text summary                                                                    |
-
-Exit codes: `0` ok, `1` runtime error or `--fail-on-match`, `2` usage error.
-
-## Token correlation
-
-Tokens are HMAC-SHA-256 of `ruleId || 0x00 || original`, truncated to 16 hex chars. Same key + same value + same rule ⇒ same token. A different key produces different tokens. Generated keys use encoding `hex`; pasted keys default to `utf8`.
+See the repository's [`LICENSE`](./LICENSE) file for details.
