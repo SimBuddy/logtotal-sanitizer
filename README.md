@@ -5,7 +5,7 @@ This repository is a personal development fork of [SocPrime's `logtotal-sanitize
 This is hopefully, a small gift to SOC Prime and Andrii B from Paul G (formerly Diageo). I'm stress testing a novel method of refocussing code (not traditional optimising),
 which is machine-assisted, and human orchestrated, and I noticed SOC Prime's post about the sanitiser, so I thought I'd stress-test the code with my method. If you need any more info, AB has my number.
 
-I would greatly appreciate feedback on this, as I'm new to Github, so sorry if I goofed up. I'm interested in the real-world improvements if adopted/tested.
+I would greatly appreciate feedback on this, as I'm new to Github, so sorry if I goofed up. I'm interested in any real-world improvements if adopted/tested.
 
 The upstream project provides deterministic sanitization and pseudonymization of sensitive values in log data for Node.js and browser environments.
 
