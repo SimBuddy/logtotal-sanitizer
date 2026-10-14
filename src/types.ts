@@ -80,9 +80,12 @@ export interface SanitizeRule {
    */
   validate?: (match: string) => boolean;
   /**
-   * JSON field names whose value is redacted by name alone, regardless of its shape, when the
-   * input line is a JSON object. Matching ignores case, hyphens and underscores, so `x-api-key`,
-   * `x_api_key` and `xApiKey` are the same key.
+   * JSON field names whose string or numeric value is redacted by name alone, regardless of its
+   * shape, and without {@link SanitizeRule.validate}. Applies to JSON lines and to `"key": value`
+   * pairs inside other lines (pretty-printed records, embedded or escaped JSON, Python dict
+   * reprs). Matching ignores case, hyphens, underscores, dots and spaces, so `x-api-key`,
+   * `x_api_key` and `xApiKey` are the same key. A nested field is first tried together with its
+   * parent's name: `{"user": {"name": …}}` and `"user.name"` both match `userName`.
    */
   jsonKeys?: string[];
   /**
@@ -305,7 +308,8 @@ export interface SanitizerOptions {
    * How to treat lines that parse as a JSON object or array.
    *
    * - `'auto'` redacts values of fields named in a rule's `jsonKeys` and re-serializes the
-   *   record, falling back to plain-text scanning when the line is not valid JSON.
+   *   record. A line that is not valid JSON is scanned as plain text, with `"key": value` pairs
+   *   in it still redacted by name.
    * - `false` always scans as plain text.
    * @default 'auto'
    */

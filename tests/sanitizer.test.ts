@@ -128,44 +128,39 @@ describe('sanitizeText', () => {
   });
 
   it('redacts a pretty-printed Windows Event whose fields sit on their own lines', () => {
-    const text = `${JSON.stringify(
-      {
-        Event: {
-          System: { Computer: 'swachchhanda' },
-          EventData: {
-            User: 'swachchhanda\\xodih',
-            CurrentDirectory: 'C:\\Users\\xodih\\AppData\\Local\\Temp\\',
-            ParentUser: '-',
-          },
+    const event = {
+      Event: {
+        System: { Computer: 'swachchhanda' },
+        EventData: {
+          User: 'swachchhanda\\xodih',
+          CurrentDirectory: 'C:\\Users\\xodih\\AppData\\Local\\Temp\\',
+          ParentUser: '-',
         },
       },
-      null,
-      2,
-    )}\n`;
-
-    const { output, report } = sanitizeText(text, {
+    };
+    const options = {
       key: KEY,
-      keyEncoding: 'hex',
-      rules: ['hosts', 'users', 'paths'],
-    });
+      keyEncoding: 'hex' as const,
+      rules: ['hosts', 'users', 'paths'] as const,
+    };
+
+    const { output, report } = sanitizeText(`${JSON.stringify(event, null, 2)}\n`, options);
+    const compact = sanitizeText(JSON.stringify(event), options).output;
 
     expect(output).not.toContain('xodih');
     expect(output).not.toContain('swachchhanda');
     expect(output).toMatch(/"Computer": "<HOST:[0-9a-f]{16}>"/);
-    expect(output).toMatch(/"User": "<HOST:[0-9a-f]{16}>\\\\<USER:[0-9a-f]{16}>"/);
+    expect(output).toMatch(/"User": "<USER:[0-9a-f]{16}>"/);
     expect(output).toContain('C:\\\\Users\\\\<R:');
     expect(output).toContain('"ParentUser": "-"');
     expect(report.counts.users).toBe(1);
-    expect(report.counts.hosts).toBe(2);
-
-    const hostToken = /"Computer": "(<HOST:[0-9a-f]{16}>)"/.exec(output)?.[1];
-    expect(hostToken).toBeDefined();
-    expect(output).toContain(`"User": "${hostToken!}\\\\<USER:`);
+    expect(report.counts.hosts).toBe(1);
+    expect(JSON.parse(output)).toEqual(JSON.parse(compact));
   });
 
   it('gives a JSON-escaped account the same token as the plain-text form', () => {
     const options = { key: KEY, keyEncoding: 'hex' as const, rules: ['users'] as const };
-    const escaped = sanitizeText('"User": "CORP\\\\jdoe"', options).output;
+    const escaped = sanitizeText('"Initiator": "CORP\\\\jdoe"', options).output;
     const plain = sanitizeText('login CORP\\jdoe ok', options).output;
     const token = /<USER:[0-9a-f]{16}>/.exec(escaped)?.[0];
 

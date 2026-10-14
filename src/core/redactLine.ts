@@ -1,6 +1,7 @@
 import type { SanitizeSegment } from '../types';
 import { isAllowed } from './allowlist';
 import { buildReplacement, type CompiledRule, type RuleContext } from './compile';
+import { findKeyValueMatches, type KeyValueMatch } from './redactKeyValuePairs';
 import { lineHasAnyChar } from './regexSource';
 
 export interface RedactMatch {
@@ -160,6 +161,18 @@ function pickNext(cursors: FragmentCursor[]): FragmentCursor | null {
   return best;
 }
 
+function blankOut(line: string, spans: readonly KeyValueMatch[]): string {
+  let out = '';
+  let cursor = 0;
+
+  for (const span of spans) {
+    out += line.slice(cursor, span.start) + ' '.repeat(span.end - span.start);
+    cursor = span.end;
+  }
+
+  return out + line.slice(cursor);
+}
+
 export function redactLine(
   line: string,
   ctx: RuleContext,
@@ -168,8 +181,9 @@ export function redactLine(
   const { compiled, rulesById, allow, contextChars } = ctx;
   const withSegments = options.withSegments ?? false;
   const withMatches = options.withMatches ?? false;
+  const keyed = ctx.json ? findKeyValueMatches(line, ctx.rules) : [];
 
-  if (compiled.length === 0) {
+  if (compiled.length === 0 && keyed.length === 0) {
     return {
       output: line,
       counts: {},
@@ -180,19 +194,83 @@ export function redactLine(
     };
   }
 
-  const cursors = openCursors(line, compiled);
+  // Patterns scan a copy with key-named values blanked out: no match may start inside them, and
+  // gates then skip rules whose only trigger was the value itself. Offsets stay aligned.
+  const scan = keyed.length === 0 ? line : blankOut(line, keyed);
+  const cursors = openCursors(scan, compiled);
   const counts: Record<string, number> = {};
   const matches: RedactMatch[] = [];
   const before: SanitizeSegment[] = [];
   const after: SanitizeSegment[] = [];
   let output = '';
   let cursor = 0;
+  let keyedIndex = 0;
 
   for (;;) {
     const next = pickNext(cursors);
+    const pending = keyed[keyedIndex];
+
+    // A value named by its key wins over any pattern match at or after its offset.
+    if (pending !== undefined && (next === null || pending.start <= next.start)) {
+      keyedIndex += 1;
+
+      if (!isAllowed(allow, pending.rule.id, pending.value)) {
+        const token = buildReplacement(ctx, pending.rule.id, pending.value);
+        const raw = line.slice(pending.start, pending.end);
+
+        if (withSegments) {
+          if (pending.start > cursor) {
+            const gap = line.slice(cursor, pending.start);
+            before.push({ text: gap, changed: false });
+            after.push({ text: gap, changed: false });
+          }
+
+          before.push({ text: raw, changed: true });
+
+          if (pending.quote) {
+            after.push({ text: pending.quote, changed: false });
+          }
+
+          after.push({ text: token, changed: true });
+
+          if (pending.quote) {
+            after.push({ text: pending.quote, changed: false });
+          }
+        }
+
+        output += line.slice(cursor, pending.start) + pending.quote + token + pending.quote;
+        cursor = pending.end;
+        counts[pending.rule.id] = (counts[pending.rule.id] ?? 0) + 1;
+
+        if (withMatches) {
+          matches.push({
+            ruleId: pending.rule.id,
+            original: pending.value,
+            replacement: token,
+            index: pending.start,
+            ...(contextChars > 0
+              ? sliceContext(line, pending.start, raw.length, contextChars)
+              : {}),
+          });
+        }
+      }
+
+      for (const candidate of cursors) {
+        if (candidate.active && candidate.start < pending.end) {
+          advance(candidate, scan, pending.end);
+        }
+      }
+
+      continue;
+    }
 
     if (next === null) {
       break;
+    }
+
+    if (pending !== undefined && next.start + next.original.length > pending.start) {
+      advance(next, scan, next.start + 1);
+      continue;
     }
 
     const { start, original, ruleId } = next;
@@ -236,7 +314,7 @@ export function redactLine(
 
     for (const candidate of cursors) {
       if (candidate.active && candidate.start < spanEnd) {
-        advance(candidate, line, spanEnd);
+        advance(candidate, scan, spanEnd);
       }
     }
   }

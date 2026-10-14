@@ -5,6 +5,37 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1-beta.0] - 2026-10-14
+
+### Fixed
+
+- JSON field redaction now applies to lines that are not a whole JSON document: pretty-printed
+  records, JSON embedded in a text line (`body="{\"password\":\"…\"}"`) and Python dict reprs.
+  Values of `"key": value` pairs whose key belongs to a rule are replaced by name, as in
+  single-line JSON. Previously, a pretty-printed record leaked `ssn`, `passport_number`, `iban`,
+  `cvv`, `diagnosis` and similar fields whose values fail the plain-text checksums.
+- Numeric values of sensitive keys (`"latitude": 48.1486`, `"pan": 4111111111111111`) are replaced
+  with a string token instead of being left as is.
+- Array items inherit the key of their array, so `"emails": [...]` and GeoJSON
+  `"coordinates": [...]` are redacted.
+- `hosts` rule: the reserved `.test`, `.invalid` and `.localhost` TLDs are recognized.
+
+### Changed
+
+- JSON key matching also ignores `.` and spaces, and tries a nested field together with its
+  parent's name (`user` + `name`, `client` + `ip`, `source` + `address`) before the field's own
+  name. Dotted flat keys (`"source.ip"`) resolve the same way.
+- In a pretty-printed record, a field named in `jsonKeys` is now replaced as a whole, the same
+  way the single-line form already was. For example, `"User": "CORP\\jdoe"` becomes one `USER`
+  token instead of a `HOST` and a `USER` token.
+- Key resolution is memoized per rule set, with a bounded cache.
+- Expanded `jsonKeys` and `jsonKeyContains` for every built-in rule with field names used by ECS,
+  AWS CloudTrail, Azure sign-in logs, Windows events, CEF, Datadog and common application logs:
+  cloud and API credentials, session and CSRF cookies, card, bank and wallet fields, national
+  identifiers (PESEL, rodné číslo, CPF, Aadhaar, РНОКПП and others), clinical fields, phone and
+  telephony fields, source, destination and forwarded IPs, workstation, SNI and DNS query hosts,
+  mail and actor identities, and street addresses.
+
 ## [0.2.0-beta.3] - 2026-09-23
 
 ### Fixed

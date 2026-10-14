@@ -98,7 +98,9 @@ Enabled in this order when you omit `rules`:
 
 `mask` mode (`<R:…>`) hides the kind of secret. `pseudo` mode keeps a type prefix so you can still read the timeline.
 
-JSON lines: if a line parses as a JSON object or array, fields listed in a rule's `jsonKeys` are redacted by name (case- and `-`/`_`-insensitive). Other string values still go through the regex pass.
+JSON lines: if a line parses as a JSON object or array, fields listed in a rule's `jsonKeys` (or whose name contains one of its `jsonKeyContains` fragments) are redacted by name. Matching ignores case, `-`, `_`, `.` and spaces. A nested field is also tried with its parent's name, so `{"user": {"name": …}}` and a flat `"user.name"` both resolve as `userName`, and `source.address` resolves as an IP rather than a street address. String and numeric values are replaced (a number becomes a string token); booleans, `null`, `""` and `"-"` are kept. Array items inherit the key of their array. Other string values still go through the regex pass.
+
+Lines that are not a whole JSON document (pretty-printed records, JSON embedded in a text line, JSON escaped inside another JSON string, Python dict reprs) get the same treatment for `"key": value`, `\"key\": \"value\"` and `'key': 'value'` pairs, without the parent-name lookup. A bare number replaced there is wrapped in quotes, so the line stays valid JSON. Set `json: false` to scan everything as plain text.
 
 ## Custom rules
 

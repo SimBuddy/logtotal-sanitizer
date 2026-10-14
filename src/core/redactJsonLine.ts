@@ -1,6 +1,8 @@
+import { escapeRegExp } from '../rules/alwaysRedact';
 import type { SanitizeRule, SanitizeSegment } from '../types';
 import { isAllowed } from './allowlist';
 import { buildReplacement, type RuleContext } from './compile';
+import { jsonKeyMatcher, shouldPreserveJsonValue } from './jsonKeyMatcher';
 import {
   redactLine,
   sliceContext,
@@ -14,71 +16,6 @@ const REPLACEMENT_TOKEN_RE = /<[A-Z][A-Z0-9]*:[0-9a-f]+>/g;
 export function looksLikeJson(line: string): boolean {
   const trimmed = line.trim();
   return trimmed.length > 0 && (trimmed.startsWith('{') || trimmed.startsWith('['));
-}
-
-function normalizeKey(key: string): string {
-  return key.toLowerCase().replace(/[-_]/g, '');
-}
-
-function shouldPreserveJsonValue(value: string): boolean {
-  return value.length === 0 || value === '-';
-}
-
-interface JsonKeyMatcher {
-  exact: Map<string, SanitizeRule>;
-  contains: Array<{ fragment: string; rule: SanitizeRule }>;
-}
-
-function buildJsonKeyMatcher(rules: SanitizeRule[]): JsonKeyMatcher {
-  const exact = new Map<string, SanitizeRule>();
-  const contains: Array<{ fragment: string; rule: SanitizeRule }> = [];
-
-  for (const rule of rules) {
-    for (const key of rule.jsonKeys ?? []) {
-      const normalized = normalizeKey(key);
-
-      if (!exact.has(normalized)) {
-        exact.set(normalized, rule);
-      }
-    }
-
-    for (const fragment of rule.jsonKeyContains ?? []) {
-      contains.push({ fragment: normalizeKey(fragment), rule });
-    }
-  }
-
-  return { exact, contains };
-}
-
-function resolveJsonKeyRule(matcher: JsonKeyMatcher, key: string): SanitizeRule | undefined {
-  const normalized = normalizeKey(key);
-  const exact = matcher.exact.get(normalized);
-
-  if (exact) {
-    return exact;
-  }
-
-  for (const entry of matcher.contains) {
-    if (normalized.includes(entry.fragment)) {
-      return entry.rule;
-    }
-  }
-
-  return undefined;
-}
-
-const jsonKeyMatcherCache = new WeakMap<SanitizeRule[], JsonKeyMatcher>();
-
-function jsonKeyMatcher(rules: SanitizeRule[]): JsonKeyMatcher {
-  const cached = jsonKeyMatcherCache.get(rules);
-
-  if (cached) {
-    return cached;
-  }
-
-  const matcher = buildJsonKeyMatcher(rules);
-  jsonKeyMatcherCache.set(rules, matcher);
-  return matcher;
 }
 
 function mergeCounts(target: Record<string, number>, source: Record<string, number>): void {
@@ -114,10 +51,27 @@ function highlightReplacements(text: string): SanitizeSegment[] {
 interface PreviewOriginal {
   value: string;
   wholeValue: boolean;
+  number?: boolean;
 }
 
 function jsonStringContent(value: string): string {
   return JSON.stringify(value).slice(1, -1);
+}
+
+function locateJsonNumber(
+  text: string,
+  value: string,
+  from = 0,
+): { index: number; length: number } | null {
+  const re = new RegExp(`:\\s*(${escapeRegExp(value)})(?![\\d.eE])`, 'g');
+  re.lastIndex = from;
+  const match = re.exec(text);
+
+  if (match === null) {
+    return null;
+  }
+
+  return { index: match.index + match[0].length - value.length, length: value.length };
 }
 
 function locateQuotedJsonValue(
@@ -140,6 +94,10 @@ function findOriginal(
   original: PreviewOriginal,
   from: number,
 ): { index: number; length: number } | null {
+  if (original.number === true) {
+    return locateJsonNumber(text, original.value, from);
+  }
+
   const encoded = jsonStringContent(original.value);
 
   if (original.wholeValue) {
@@ -253,43 +211,56 @@ export function redactJsonLine(
     return { contextBefore: '', contextAfter: '' };
   };
 
-  const redactValue = (value: unknown, key?: string): unknown => {
+  const redactField = (rule: SanitizeRule, value: string, number: boolean): string | null => {
+    if (isAllowed(ctx.allow, rule.id, value)) {
+      return null;
+    }
+
+    const replacement = buildReplacement(ctx, rule.id, value);
+    counts[rule.id] = (counts[rule.id] ?? 0) + 1;
+
+    if (withSegments) {
+      originals.push({ value, wholeValue: true, number });
+    }
+
+    if (withMatches) {
+      const located = number
+        ? locateJsonNumber(content, value)
+        : locateQuotedJsonValue(content, value);
+
+      matches.push({
+        ruleId: rule.id,
+        original: value,
+        replacement,
+        index: located?.index ?? 0,
+        ...(located && ctx.contextChars > 0
+          ? sliceContext(content, located.index, located.length, ctx.contextChars)
+          : ctx.contextChars > 0
+            ? { contextBefore: '', contextAfter: '' }
+            : {}),
+      });
+    }
+
+    return replacement;
+  };
+
+  const redactValue = (value: unknown, key?: string, parent?: string): unknown => {
+    if (typeof value === 'number') {
+      const fieldRule =
+        key === undefined || !Number.isFinite(value) ? undefined : keyMatcher.resolve(key, parent);
+
+      return fieldRule ? (redactField(fieldRule, String(value), true) ?? value) : value;
+    }
+
     if (typeof value === 'string') {
       if (key !== undefined && shouldPreserveJsonValue(value)) {
         return value;
       }
 
-      const fieldRule = key === undefined ? undefined : resolveJsonKeyRule(keyMatcher, key);
+      const fieldRule = key === undefined ? undefined : keyMatcher.resolve(key, parent);
 
       if (fieldRule) {
-        if (isAllowed(ctx.allow, fieldRule.id, value)) {
-          return value;
-        }
-
-        const replacement = buildReplacement(ctx, fieldRule.id, value);
-        counts[fieldRule.id] = (counts[fieldRule.id] ?? 0) + 1;
-
-        if (withSegments) {
-          originals.push({ value, wholeValue: true });
-        }
-
-        if (withMatches) {
-          const located = locateQuotedJsonValue(content, value);
-
-          matches.push({
-            ruleId: fieldRule.id,
-            original: value,
-            replacement,
-            index: located?.index ?? 0,
-            ...(located && ctx.contextChars > 0
-              ? sliceContext(content, located.index, located.length, ctx.contextChars)
-              : ctx.contextChars > 0
-                ? { contextBefore: '', contextAfter: '' }
-                : {}),
-          });
-        }
-
-        return replacement;
+        return redactField(fieldRule, value, false) ?? value;
       }
 
       const result = redactLine(value, ctx, { withMatches: collectOriginals });
@@ -311,14 +282,14 @@ export function redactJsonLine(
     }
 
     if (Array.isArray(value)) {
-      return value.map((item: unknown) => redactValue(item));
+      return value.map((item: unknown) => redactValue(item, key, parent));
     }
 
     if (value !== null && typeof value === 'object') {
       const out: Record<string, unknown> = {};
 
       for (const [entryKey, entryValue] of Object.entries(value)) {
-        out[entryKey] = redactValue(entryValue, entryKey);
+        out[entryKey] = redactValue(entryValue, entryKey, key);
       }
 
       return out;
